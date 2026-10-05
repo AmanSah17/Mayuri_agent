@@ -1,0 +1,22 @@
+{
+  "browser": {
+    "command": "python",
+    "args": ["-m", "mayuri.mcp.servers.browser_server"],
+    "description": "Playwright browser automation"
+  },
+  "filesystem": {
+    "command": "python",
+    "args": ["-m", "mayuri.mcp.servers.filesystem_server"],
+    "description": "File and directory operations"
+  },
+  "web_search": {
+    "command": "python",
+    "args": ["-m", "mayuri.mcp.servers.web_search_server"],
+    "description": "Web search via Brave/Serper API"
+  },
+  "windows": {
+    "command": "python",
+    "args": ["-m", "mayuri.mcp.servers.windows_server"],
+    "description": "Windows process and application control"
+  }
+}

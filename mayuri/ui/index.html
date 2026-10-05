@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mayuri</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ── Ambient orb ────────────────────────────────────────────────────── -->
+  <div class="orb-container" id="orb-container">
+    <div class="orb" id="orb">
+      <div class="orb-ring"></div>
+      <div class="orb-ring orb-ring--2"></div>
+      <div class="orb-core"></div>
+    </div>
+    <div class="orb-label" id="orb-label">Idle</div>
+  </div>
+
+  <!-- ── Main panel ────────────────────────────────────────────────────── -->
+  <div class="panel" id="panel">
+
+    <!-- Header -->
+    <header class="panel-header">
+      <div class="logo">
+        <span class="logo-m">M</span><span class="logo-text">ayuri</span>
+      </div>
+      <div class="header-status">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-label">Connecting…</span>
+      </div>
+    </header>
+
+    <!-- Conversation feed -->
+    <section class="chat-feed" id="chat-feed">
+      <div class="chat-welcome">
+        <p>Say <strong>"Mayuri"</strong> to wake me up.</p>
+        <p class="chat-sub">Or type below.</p>
+      </div>
+    </section>
+
+    <!-- Transcript display -->
+    <div class="transcript-bar" id="transcript-bar" hidden>
+      <span class="transcript-icon">🎙️</span>
+      <span id="transcript-text"></span>
+    </div>
+
+    <!-- Text input -->
+    <form class="input-area" id="input-form">
+      <input
+        type="text"
+        id="text-input"
+        class="text-input"
+        placeholder="Type a message…"
+        autocomplete="off"
+      />
+      <button type="submit" class="send-btn" id="send-btn" aria-label="Send">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </form>
+
+    <!-- Footer info -->
+    <footer class="panel-footer">
+      <span id="footer-model">Model: —</span>
+      <span id="footer-uptime">Uptime: —</span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

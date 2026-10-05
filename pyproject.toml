@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "mayuri"
+version = "0.1.0"
+description = "Mayuri — Local-first AI operating layer for Windows"
+requires-python = ">=3.11"
+readme = "README.md"
+
+dependencies = [
+    # API / WebSocket backbone
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "websockets>=13",
+
+    # Agent orchestration
+    "langgraph>=0.2",
+    "langchain-community>=0.3",
+    "langchain-ollama>=0.2",
+
+    # MCP (tool protocol)
+    "mcp>=1.0",
+
+    # Audio pipeline
+    "sounddevice>=0.5",
+    "numpy>=2.0",
+    "scipy>=1.14",
+
+    # Wake word
+    "openwakeword>=0.6",
+    "onnxruntime>=1.19",
+
+    # VAD + STT
+    "torch>=2.3",
+    "torchaudio>=2.3",
+    "faster-whisper>=1.0",
+    "ctranslate2>=4.3",
+
+    # TTS
+    "piper-tts>=1.2",
+
+    # Browser automation
+    "playwright>=1.47",
+
+    # Memory / persistence
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "aiosqlite>=0.20",
+
+    # Utilities
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "rich>=13",
+    "loguru>=0.7",
+    "pywin32>=306",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "onnxruntime-gpu>=1.19",
+]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+    "mypy>=1.11",
+]
+
+[project.scripts]
+mayuri      = "mayuri.main:main"
+mayuri-wake = "mayuri.wake.service:main"
+mayuri-api  = "mayuri.api.server:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
