@@ -41,10 +41,10 @@ def create_app() -> FastAPI:
         redoc_url=None,
     )
 
-    # CORS — only localhost
+    # CORS — allow localhost on any port for separate frontend dev
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[f"http://{settings.api_host}:{settings.api_port}", "http://localhost:*"],
+        allow_origins=["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )

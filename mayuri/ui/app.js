@@ -17,9 +17,13 @@
 'use strict';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const API_BASE = 'http://127.0.0.1:8765';
-const WS_URL   = 'ws://127.0.0.1:8765/ws/events';
+// If running on a separate frontend server (e.g. port 3000, 5173), target the backend at 8765
+const isCustomFrontend = window.location.port !== '8765' && window.location.protocol.startsWith('http');
+const API_BASE = isCustomFrontend ? 'http://127.0.0.1:8765' : `${window.location.protocol}//${window.location.host}`;
+const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_URL   = isCustomFrontend ? 'ws://127.0.0.1:8765/ws/events' : `${WS_PROTOCOL}//${window.location.host}/ws/events`;
 const RECONNECT_DELAY_MS = 3000;
+
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 const $body         = document.body;
