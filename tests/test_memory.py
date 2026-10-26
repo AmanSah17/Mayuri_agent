@@ -41,6 +41,6 @@ async def test_facts(tmp_path) -> None:
         assert value == "Aman"
 
         # Upsert
-        await store.save_fact("user_name", "Aman Sharma")
+        await store.save_fact("user_name", "Aman Sah")
         value = await store.get_fact("user_name")
-        assert value == "Aman Sharma"
+        assert value == "Aman Sah"

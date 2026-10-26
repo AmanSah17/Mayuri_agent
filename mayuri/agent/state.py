@@ -48,5 +48,8 @@ class AgentState(TypedDict):
     # Set by respond_node — the final spoken text
     final_answer: str
 
+    # Recalled cross-thread compressed vector memory context
+    recalled_context: str
+
     # Internal flag: did the LLM request tools this step?
     needs_tools: bool

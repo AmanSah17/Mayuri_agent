@@ -73,19 +73,26 @@ class WhisperTranscriber:
         pcm_bytes:
             Raw signed 16-bit, 16 kHz, mono PCM audio.
         """
-        # faster-whisper accepts a file-like object (WAV) or numpy float32 array
+        clean_text, _, _ = self.transcribe_with_info(pcm_bytes)
+        return clean_text
+
+    def transcribe_with_info(self, pcm_bytes: bytes) -> tuple[str, str, bool]:
+        """
+        Transcribe raw PCM bytes, returning (clean_text, raw_text, has_wake_word).
+        """
         audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
 
         segments, _ = self._model.transcribe(
             audio,
             language="en",
             beam_size=5,
-            vad_filter=True,   # built-in VAD as extra filter
+            vad_filter=True,
         )
 
-        text = " ".join(seg.text.strip() for seg in segments)
-        text = self._strip_wake_word(text)
-        return text.strip()
+        raw_text = " ".join(seg.text.strip() for seg in segments).strip()
+        has_wake = bool(re.search(r"\b(mayuri|jarvis)\b", raw_text, re.IGNORECASE))
+        clean_text = self._strip_wake_word(raw_text).strip()
+        return clean_text, raw_text, has_wake
 
     def transcribe_file(self, path: str) -> str:
         """Convenience: transcribe from a WAV file path."""
@@ -96,6 +103,6 @@ class WhisperTranscriber:
 
     @staticmethod
     def _strip_wake_word(text: str) -> str:
-        """Remove leading 'Mayuri' / 'Hey Mayuri' from transcript."""
-        pattern = re.compile(r"^\s*(hey\s+)?mayuri[,.]?\s*", re.IGNORECASE)
+        """Remove leading 'Mayuri' / 'Jarvis' / 'Hey Jarvis' from transcript."""
+        pattern = re.compile(r"^\s*(hey\s+)?(mayuri|jarvis)[,.]?\s*", re.IGNORECASE)
         return pattern.sub("", text)

@@ -44,7 +44,11 @@ async def get_status() -> StatusResponse:
         from mayuri.config import settings
         async with httpx.AsyncClient() as client:
             r = await client.get(f"{settings.ollama_base_url}/api/tags", timeout=2.0)
-        components.append(ComponentStatus(name="ollama", status="ok", detail=str(r.status_code)))
+        data = r.json()
+        models = [m.get("name", "") for m in data.get("models", [])]
+        is_model_loaded = any(settings.ollama_model in m for m in models)
+        detail = f"model={settings.ollama_model} ({'loaded' if is_model_loaded else 'not in tags'})"
+        components.append(ComponentStatus(name="ollama", status="ok" if is_model_loaded else "warning", detail=detail))
     except Exception as exc:
         components.append(ComponentStatus(name="ollama", status="error", detail=str(exc)))
 

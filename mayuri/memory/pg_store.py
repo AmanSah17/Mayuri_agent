@@ -17,6 +17,7 @@ Architecture:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 from typing import Any
@@ -46,20 +47,34 @@ class PGMemoryStore:
     """
 
     def __init__(self) -> None:
-        self._engine = create_async_engine(
-            settings.postgres_url,
-            echo=False,
-            pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=10,
-        )
-        self._session = async_sessionmaker(self._engine, expire_on_commit=False)
+        self._engine = None
+        self._session = None
+        self._loop = None
         self._ready = False
+        self._ensure_engine()
+
+    def _ensure_engine(self) -> None:
+        try:
+            curr_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            curr_loop = None
+
+        if self._engine is None or self._loop != curr_loop:
+            self._loop = curr_loop
+            self._engine = create_async_engine(
+                settings.postgres_url,
+                echo=False,
+                pool_pre_ping=True,
+                pool_size=5,
+                max_overflow=10,
+            )
+            self._session = async_sessionmaker(self._engine, expire_on_commit=False)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def init(self) -> bool:
         """Create tables if they don't exist. Returns True if successful."""
+        self._ensure_engine()
         try:
             async with self._engine.begin() as conn:
                 await conn.run_sync(PGBase.metadata.create_all)
@@ -84,6 +99,7 @@ class PGMemoryStore:
     async def ensure_conversation(self, session_id: str, title: str = "Untitled") -> None:
         if not self._ready:
             return
+        self._ensure_engine()
         async with self._session() as db:
             async with db.begin():
                 stmt = pg_insert(Conversation).values(
@@ -99,6 +115,7 @@ class PGMemoryStore:
         """Load recent messages, respecting approximate token budget."""
         if not self._ready:
             return []
+        self._ensure_engine()
 
         async with self._session() as db:
             stmt = (
@@ -133,6 +150,7 @@ class PGMemoryStore:
     ) -> None:
         if not self._ready:
             return
+        self._ensure_engine()
         await self.ensure_conversation(session_id)
 
         async with self._session() as db:
@@ -156,6 +174,7 @@ class PGMemoryStore:
     async def clear_session(self, session_id: str) -> None:
         if not self._ready:
             return
+        self._ensure_engine()
         async with self._session() as db:
             async with db.begin():
                 await db.execute(
@@ -167,6 +186,7 @@ class PGMemoryStore:
     async def save_fact(self, key: str, value: str, source: str = "conversation") -> None:
         if not self._ready:
             return
+        self._ensure_engine()
         async with self._session() as db:
             async with db.begin():
                 stmt = pg_insert(Fact).values(
@@ -180,6 +200,7 @@ class PGMemoryStore:
     async def get_fact(self, key: str) -> str | None:
         if not self._ready:
             return None
+        self._ensure_engine()
         async with self._session() as db:
             row = (await db.execute(select(Fact).where(Fact.key == key))).scalar_one_or_none()
             return row.value if row else None
@@ -187,6 +208,7 @@ class PGMemoryStore:
     async def get_all_facts(self) -> dict[str, str]:
         if not self._ready:
             return {}
+        self._ensure_engine()
         async with self._session() as db:
             rows = (await db.execute(select(Fact))).scalars().all()
             return {r.key: r.value for r in rows}
@@ -196,6 +218,7 @@ class PGMemoryStore:
     async def get_personality(self) -> dict[str, float]:
         if not self._ready:
             return {"humor_level": 0.7, "verbosity": 0.5, "formality": 0.3}
+        self._ensure_engine()
         async with self._session() as db:
             row = (await db.execute(select(PersonalityState).where(PersonalityState.id == 1))).scalar_one_or_none()
             if not row:
@@ -209,6 +232,7 @@ class PGMemoryStore:
     async def update_personality(self, **kwargs: float) -> None:
         if not self._ready:
             return
+        self._ensure_engine()
         async with self._session() as db:
             async with db.begin():
                 stmt = (

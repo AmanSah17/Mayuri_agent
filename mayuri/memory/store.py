@@ -80,7 +80,8 @@ class MemoryStore:
         async with self._session_factory() as db:
             async with db.begin():
                 # Ensure session exists
-                existing = await db.get(Session, session_id)
+                stmt_sess = select(Session).where(Session.session_id == session_id)
+                existing = (await db.execute(stmt_sess)).scalar_one_or_none()
                 if existing is None:
                     db.add(Session(session_id=session_id))
 
@@ -107,7 +108,8 @@ class MemoryStore:
 
         await self._ensure_tables()
         async with self._session_factory() as db:
-            row = await db.get(Fact, key)
+            stmt = select(Fact).where(Fact.key == key)
+            row = (await db.execute(stmt)).scalar_one_or_none()
             return row.value if row else None
 
     async def clear_session(self, session_id: str) -> None:

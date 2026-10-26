@@ -28,7 +28,11 @@ WAKE_DIR.mkdir(exist_ok=True)
 
 
 def log(msg: str) -> None:
-    print(f"  {msg}", flush=True)
+    msg = msg.replace("✓", "[OK]").replace("✗", "[FAIL]")
+    try:
+        print(f"  {msg}", flush=True)
+    except UnicodeEncodeError:
+        print(f"  {msg.encode('ascii', 'replace').decode('ascii')}", flush=True)
 
 
 # ── 1. openWakeWord ───────────────────────────────────────────────────────────
@@ -51,7 +55,11 @@ def install_whisper() -> None:
     print("\n[2/4] faster-whisper model")
     try:
         from faster_whisper import WhisperModel  # type: ignore[import]
-        model_size = "medium"
+        try:
+            from mayuri.config import settings
+            model_size = settings.whisper_model_size
+        except Exception:
+            model_size = "base"
         log(f"Downloading Whisper '{model_size}' (this may take a few minutes)…")
         WhisperModel(model_size, device="cpu", compute_type="int8")
         log(f"✓ Whisper '{model_size}' cached.")
@@ -95,12 +103,34 @@ def install_silero() -> None:
     try:
         import torch  # type: ignore[import]
         log("Downloading Silero VAD via torch.hub…")
-        torch.hub.load("snakers4/silero-vad", "silero_vad", force_reload=False, onnx=False)
+        torch.hub.load("snakers4/silero-vad", "silero_vad", force_reload=False, onnx=False, trust_repo=True)
         log("✓ Silero VAD cached.")
     except ImportError:
         log("✗ torch not installed. Run: pip install torch")
     except Exception as exc:
         log(f"✗ Failed: {exc}")
+
+
+# ── 5. Ollama LLM (Qwen) ──────────────────────────────────────────────────────
+
+def verify_ollama_model() -> None:
+    print("\n[5/5] Ollama LLM (Qwen)")
+    try:
+        import json
+        import urllib.request
+        from mayuri.config import settings
+
+        url = f"{settings.ollama_base_url}/api/tags"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode())
+            models = [m.get("name", "") for m in data.get("models", [])]
+            if any(settings.ollama_model in m for m in models):
+                log(f"✓ Ollama model '{settings.ollama_model}' is available.")
+            else:
+                log(f"✗ Model '{settings.ollama_model}' not found. Run: ollama pull {settings.ollama_model}")
+    except Exception as exc:
+        log(f"✗ Ollama check failed: {exc}")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -114,6 +144,7 @@ if __name__ == "__main__":
     install_whisper()
     install_piper()
     install_silero()
+    verify_ollama_model()
 
     print("\n" + "=" * 50)
     print("  Done! Run `mayuri` to start.")

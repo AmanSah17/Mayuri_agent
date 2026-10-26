@@ -61,6 +61,7 @@ class SileroVAD:
             "silero_vad",
             force_reload=False,
             onnx=False,
+            trust_repo=True,
         )
         model.eval()
         return model, utils

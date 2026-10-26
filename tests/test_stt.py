@@ -14,4 +14,6 @@ def test_strip_wake_word() -> None:
     assert t._strip_wake_word("Mayuri, open Chrome") == "open Chrome"
     assert t._strip_wake_word("Hey Mayuri open Chrome") == "open Chrome"
     assert t._strip_wake_word("mayuri. set the volume to 50") == "set the volume to 50"
+    assert t._strip_wake_word("Hey Jarvis, what is the weather?") == "what is the weather?"
+    assert t._strip_wake_word("Jarvis, search Amazon for laptops") == "search Amazon for laptops"
     assert t._strip_wake_word("search Amazon for laptops") == "search Amazon for laptops"

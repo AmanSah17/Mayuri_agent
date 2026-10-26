@@ -44,7 +44,7 @@ class WakeWordService:
         Main loop — runs until *stop* is set.
         Offloads blocking sounddevice I/O to a thread.
         """
-        logger.info("🎙️  Wake-word service started — listening for 'Mayuri' …")
+        logger.info(f"🎙️  Wake-word service started — listening for '{settings.wake_word}' …")
         loop = asyncio.get_running_loop()
 
         try:

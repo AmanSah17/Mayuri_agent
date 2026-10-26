@@ -169,21 +169,26 @@ $inputForm.addEventListener('submit', async (evt) => {
   if (!text) return;
   $textInput.value = '';
 
-  appendMessage('user', text);
-  setState('thinking');
-
-  try {
-    const res = await fetch(`${API_BASE}/chat/message`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, session_id: 'default' }),
-    });
-    const data = await res.json();
-    appendMessage('ai', data.response || 'No response.');
-  } catch (err) {
-    appendMessage('ai', `⚠ API error: ${err.message}`);
-  } finally {
-    setState('idle');
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    // Real-time WebSocket transmission: events will drive UI state automatically
+    ws.send(JSON.stringify({ type: 'chat', text, session_id: 'default' }));
+  } else {
+    // HTTP fallback if WebSocket reconnecting
+    appendMessage('user', text);
+    setState('thinking');
+    try {
+      const res = await fetch(`${API_BASE}/chat/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, session_id: 'default' }),
+      });
+      const data = await res.json();
+      appendMessage('ai', data.response || 'No response.');
+    } catch (err) {
+      appendMessage('ai', `⚠ API error: ${err.message}`);
+    } finally {
+      setState('idle');
+    }
   }
 });
 
@@ -203,13 +208,12 @@ async function refreshStatus() {
 
 async function loadConfig() {
   try {
-    // Read model from Ollama tags endpoint
-    const res  = await fetch('http://127.0.0.1:11434/api/tags');
+    const res  = await fetch(`${API_BASE}/status`);
     const data = await res.json();
-    const models = (data.models || []).map(m => m.name).join(', ');
-    $footerModel.textContent = `Model: ${models || '—'}`;
+    const comp = (data.components || []).find(c => c.name === 'ollama');
+    $footerModel.textContent = `Model: ${comp ? comp.detail : 'qwen2.5:3b'}`;
   } catch {
-    $footerModel.textContent = 'Model: Ollama offline';
+    $footerModel.textContent = 'Model: Local Assistant';
   }
 }
 

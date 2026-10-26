@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=75", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "mayuri"
@@ -82,3 +82,7 @@ target-version = "py311"
 [tool.mypy]
 python_version = "3.11"
 strict = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mayuri*"]

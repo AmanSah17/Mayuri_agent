@@ -38,14 +38,34 @@ class WakeWordDetector:
     def _load_model() -> object:
         """Load openWakeWord model. Returns the oww Model object."""
         try:
+            from pathlib import Path
             import openwakeword  # type: ignore[import]
             from openwakeword.model import Model  # type: ignore[import]
 
-            # openwakeword ships a pretrained "hey_mycroft" style model.
-            # For a custom "Mayuri" wake word you need to train your own ONNX.
-            # Point WAKE_WORD to the model path or a built-in keyword.
+            target_model = settings.wake_word
+            clean_name = target_model.lower().replace(" ", "_")
+            if clean_name in ("jarvis", "hey_jarvis"):
+                clean_name = "hey_jarvis"
+            elif clean_name in ("mycroft", "hey_mycroft"):
+                clean_name = "hey_mycroft"
+            elif clean_name in ("rhasspy", "hey_rhasspy"):
+                clean_name = "hey_rhasspy"
+
+            if Path(target_model).is_file():
+                models_to_load = [target_model]
+            elif (Path("models/wake") / f"{target_model}.onnx").is_file():
+                models_to_load = [str(Path("models/wake") / f"{target_model}.onnx")]
+            elif clean_name in ["alexa", "hey_mycroft", "hey_jarvis", "hey_rhasspy", "timer", "weather"]:
+                models_to_load = [clean_name]
+            else:
+                logger.warning(
+                    f"⚠️ Custom wake-word model '{target_model}' not found as .onnx file. "
+                    "Falling back to built-in 'hey_jarvis'. (You can say 'Hey Jarvis')."
+                )
+                models_to_load = ["hey_jarvis"]
+
             model = Model(
-                wakeword_models=[settings.wake_word],
+                wakeword_models=models_to_load,
                 inference_framework="onnx",
             )
             return model

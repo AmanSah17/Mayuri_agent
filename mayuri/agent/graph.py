@@ -24,9 +24,11 @@ from loguru import logger
 
 from mayuri.agent.state import AgentState, PersonalityConfig
 from mayuri.agent.tools import ALL_TOOLS
+from mayuri.api.ws.events import EventBus
 from mayuri.config import settings
 from mayuri.memory.pg_store import PGMemoryStore
 from mayuri.memory.store import MemoryStore
+from mayuri.memory.vector_store import VectorConversationMemory
 
 
 # ── Personality prompt builder ────────────────────────────────────────────────
@@ -34,6 +36,7 @@ from mayuri.memory.store import MemoryStore
 def _build_system_prompt(
     personality: PersonalityConfig,
     facts: dict[str, str],
+    recalled_context: str = "",
 ) -> str:
     """
     Dynamically build the system prompt based on personality state and known facts.
@@ -93,6 +96,9 @@ def _build_system_prompt(
 
         ## Capabilities
         You have access to:
+        - play_music: play songs, videos, or music on YouTube or Spotify.
+        - open_app: launch desktop apps (Chrome, Notepad, Calculator, Spotify, VS Code, etc.).
+        - open_browser: open websites and URLs in the default browser.
         - tavily_search: real-time web search (news, facts, prices)
         - exa_search: neural/semantic web search (research, deep content)
         - quick_answer: fast factual Q&A
@@ -100,11 +106,16 @@ def _build_system_prompt(
         - calculate: safe math evaluation
 
         ## Core rules
-        1. Never execute arbitrary code — only use named tools.
-        2. If you don't know something, use a search tool rather than guessing.
-        3. Keep spoken answers concise — you can elaborate if asked.
-        4. Be honest. Never fabricate facts or URLs.
+        1. When Aman asks to play a song, track, video, or music (e.g. "play Kalyani", "play music by Shreya Ghoshal", "play something on YouTube"), YOU MUST CALL the `play_music` tool immediately. DO NOT just say you will play it without invoking the tool!
+        2. When Aman asks to open an app (e.g. "open notepad", "open chrome"), call `open_app`.
+        3. When Aman asks to open a website, call `open_browser`.
+        4. Never execute arbitrary code — only use named tools.
+        5. If you don't know something, use a search tool rather than guessing.
+        6. Keep spoken answers concise — you can elaborate if asked.
+        7. Be honest. Never fabricate facts or URLs.
+        8. If a tool fails or reports an issue, DO NOT get stuck in a retry loop or repeatedly apologize. Immediately bypass the failing tool, switch to an alternative tool or use your general knowledge, and deliver a clean answer.
         {facts_str}
+        {recalled_context}
     """).strip()
 
 
@@ -115,10 +126,15 @@ def _get_llm_with_tools() -> ChatOllama:
     llm = ChatOllama(
         base_url=settings.ollama_base_url,
         model=settings.ollama_model,
-        temperature=0.6,
+        temperature=0.8,
         streaming=True,
     )
     return llm.bind_tools(ALL_TOOLS)
+
+
+def build_llm() -> ChatOllama:
+    """Public helper returning the initialized Ollama LLM bound with tools."""
+    return _get_llm_with_tools()
 
 
 # ── Graph nodes ───────────────────────────────────────────────────────────────
@@ -131,12 +147,27 @@ def llm_node(state: AgentState) -> dict:
     sys_prompt = _build_system_prompt(
         state.get("personality", {"humor_level": 0.7, "verbosity": 0.5, "formality": 0.3}),
         state.get("user_facts", {}),
+        state.get("recalled_context", ""),
     )
 
     messages = [SystemMessage(content=sys_prompt)] + state["messages"]
     response: AIMessage = llm.invoke(messages)
 
-    logger.debug(f"LLM: {response.content[:120] if response.content else '[tool call]'}")
+    model_name = response.response_metadata.get("model", settings.ollama_model)
+    logger.info(f"🤖 LLM [{model_name}]: {response.content[:120] if response.content else '[tool call]'}")
+
+    # Broadcast real-time tool calls to connected frontend assistant UI
+    if response.tool_calls:
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                for call in response.tool_calls:
+                    asyncio.create_task(
+                        EventBus.emit("tool_call", {"tool": call.get("name"), "args": call.get("args")})
+                    )
+        except Exception:
+            pass
+
     return {
         "messages": [response],
         "needs_tools": bool(response.tool_calls),
@@ -191,21 +222,26 @@ class MayuriAgent:
     Unified agent interface used by audio pipeline and REST API.
 
     Memory strategy:
-      - PostgreSQL: long-term history + facts + personality (persists across restarts)
+      - Vector store (ChromaDB + SentenceTransformers): compressed semantic memory across all threads
+      - PostgreSQL: long-term structured history + facts + personality (persists across restarts)
       - SQLite: fast session cache (in-memory speed for recent context)
     """
 
     _pg: PGMemoryStore | None = None
     _sqlite: MemoryStore | None = None
+    _vector: VectorConversationMemory | None = None
 
     @classmethod
-    async def get_stores(cls) -> tuple[PGMemoryStore, MemoryStore]:
+    async def get_stores(cls) -> tuple[PGMemoryStore, MemoryStore, VectorConversationMemory]:
         if cls._pg is None:
             cls._pg = PGMemoryStore()
             await cls._pg.init()
         if cls._sqlite is None:
             cls._sqlite = MemoryStore()
-        return cls._pg, cls._sqlite
+        if cls._vector is None:
+            cls._vector = VectorConversationMemory.get_instance()
+            await cls._vector.init()
+        return cls._pg, cls._sqlite, cls._vector
 
     async def run(self, user_input: str, session_id: str = "default") -> str:
         """
@@ -213,11 +249,22 @@ class MayuriAgent:
 
         Returns the assistant's response text (to be spoken by TTS).
         """
-        pg, sqlite = await self.get_stores()
+        pg, sqlite, vector = await self.get_stores()
 
         # Load personality and facts from PostgreSQL
         personality = await pg.get_personality()
         user_facts = await pg.get_all_facts()
+
+        # Semantic vector recall: retrieve compressed memory from previous conversations and threads
+        recalled_context = ""
+        try:
+            recalled_context = await vector.get_compressed_context(
+                query=user_input,
+                n_results=3,
+                current_session=session_id,
+            )
+        except Exception as exc:
+            logger.warning(f"Vector memory recall error: {exc}")
 
         # Load recent conversation history (PostgreSQL → richer long-term context)
         pg_history = await pg.load_messages(session_id, max_tokens=3000)
@@ -233,6 +280,7 @@ class MayuriAgent:
             "session_id": session_id,
             "personality": personality,
             "user_facts": user_facts,
+            "recalled_context": recalled_context,
             "tool_outputs": [],
             "final_answer": "",
             "needs_tools": False,
@@ -243,9 +291,14 @@ class MayuriAgent:
 
         answer = result.get("final_answer", "")
 
-        # Persist to both stores
+        # Persist to all memory stores
         tool_outputs = result.get("tool_outputs", [])
+        tool_names = [t.get("tool", "") for t in tool_outputs if isinstance(t, dict)]
         await pg.save_turn(session_id, user_input, answer, tool_outputs or None)
         await sqlite.save_turn(session_id, user_input, answer)
+        try:
+            await vector.save_turn(session_id, user_input, answer, tool_names=tool_names or None)
+        except Exception as exc:
+            logger.warning(f"Vector store persistence error: {exc}")
 
         return answer

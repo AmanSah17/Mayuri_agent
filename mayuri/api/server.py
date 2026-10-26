@@ -14,16 +14,22 @@ the HTTP endpoints for text chat and memory management.
 from __future__ import annotations
 
 import asyncio
+import json
+from concurrent.futures import ThreadPoolExecutor
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from mayuri.api.routes import chat, memory, status
 from mayuri.api.ws.events import EventBus
 from mayuri.config import settings
+
+# Thread pool for blocking TTS
+_tts_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tts")
 
 
 def create_app() -> FastAPI:
@@ -48,19 +54,64 @@ def create_app() -> FastAPI:
     app.include_router(status.router)
     app.include_router(memory.router)
 
+    # Root redirect to UI
+    @app.get("/", include_in_schema=False)
+    async def index() -> RedirectResponse:
+        return RedirectResponse(url="/ui/")
+
     # Serve UI static files
     ui_dir = settings.base_dir / "mayuri" / "ui"
     if ui_dir.exists():
         app.mount("/ui", StaticFiles(directory=str(ui_dir), html=True), name="ui")
 
-    # WebSocket endpoint
+    # Real-time WebSocket endpoint
     @app.websocket(settings.api_ws_path)
     async def ws_events(websocket: WebSocket) -> None:
         await EventBus.connect(websocket)
+
+        async def _handle_chat(user_text: str, session_id: str) -> None:
+            """Run agent + TTS in a background task so the receive loop stays free."""
+            try:
+                from mayuri.agent.graph import MayuriAgent
+                from mayuri.tts.synthesizer import PiperTTS
+
+                await EventBus.emit("state", {"status": "thinking"})
+                await EventBus.emit("transcript", {"text": user_text})
+
+                agent = MayuriAgent()
+                response_text = await agent.run(user_input=user_text, session_id=session_id)
+
+                await EventBus.emit("state", {"status": "speaking"})
+                await EventBus.emit("response", {"text": response_text})
+
+                # Speak the response through the local speaker (non-blocking via thread)
+                if response_text.strip():
+                    loop = asyncio.get_running_loop()
+                    tts = PiperTTS()
+                    await loop.run_in_executor(_tts_executor, tts.speak, response_text)
+
+                await EventBus.emit("state", {"status": "idle"})
+            except Exception as exc:
+                logger.error(f"Chat handler error: {exc}")
+                await EventBus.emit("error", {"message": str(exc)})
+
         try:
             while True:
-                # Keep connection alive; client sends pings
-                await websocket.receive_text()
+                msg_text = await websocket.receive_text()
+                if not msg_text or msg_text.strip() == "ping":
+                    continue
+
+                try:
+                    payload = json.loads(msg_text)
+                    if payload.get("type") == "chat":
+                        user_text = payload.get("text", "").strip()
+                        session_id = payload.get("session_id", "default")
+                        if user_text:
+                            # Fire-and-forget: agent runs freely, receive loop stays unblocked
+                            asyncio.create_task(_handle_chat(user_text, session_id))
+                except Exception as exc:
+                    logger.error(f"WebSocket message parse error: {exc}")
+                    await EventBus.emit("error", {"message": str(exc)})
         except WebSocketDisconnect:
             await EventBus.disconnect(websocket)
 

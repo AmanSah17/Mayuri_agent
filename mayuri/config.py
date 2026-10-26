@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     memory_db_path: Path = Path("data/mayuri.db")
     memory_max_history: int = 50
 
+    # ── Vector store (semantic conversation compression & recall) ─────────────
+    chroma_persist_dir: Path = Path("data/chroma")
+    embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_device: str = "cuda"
+
     # ── LangSmith ─────────────────────────────────────────────────────────────
     langchain_tracing_v2: str = "true"
     langchain_endpoint: str = "https://api.smith.langchain.com"
