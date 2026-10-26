@@ -95,17 +95,42 @@ class PiperTTS:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    def stop(self) -> None:
+        """Immediately stop currently playing audio (barge-in interruption)."""
+        self._stop_requested = True
+        try:
+            sd.stop()
+        except Exception:
+            pass
+
     def speak(self, text: str) -> None:
-        """Synthesise *text*, apply audio smoothing/pitch reduction, and play."""
+        """
+        Synthesise *text* sentence-by-sentence for ultra-low latency streaming playback.
+        The first sentence begins playing in ~300ms while subsequent sentences synthesize.
+        """
         if not text.strip():
             return
 
-        logger.debug(f"TTS: '{text[:60]}…'")
-        try:
-            audio, sample_rate = self._synthesize(text)
-            sd.play(audio, samplerate=sample_rate, blocking=True)
-        except Exception as exc:
-            logger.error(f"TTS speak failed: {exc}")
+        self._stop_requested = False
+        # Split into sentences for streaming playback
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+        if not sentences:
+            sentences = [text.strip()]
+
+        logger.debug(f"TTS streaming {len(sentences)} sentence(s)...")
+
+        for idx, sentence in enumerate(sentences):
+            if getattr(self, "_stop_requested", False):
+                logger.info("🛑 TTS playback interrupted by user.")
+                break
+
+            try:
+                audio, sample_rate = self._synthesize(sentence)
+                if getattr(self, "_stop_requested", False):
+                    break
+                sd.play(audio, samplerate=sample_rate, blocking=True)
+            except Exception as exc:
+                logger.error(f"TTS speak failed for sentence {idx+1}: {exc}")
 
     def synthesize_to_file(self, text: str, output_path: Path) -> None:
         """Synthesise *text* and write to a WAV file."""

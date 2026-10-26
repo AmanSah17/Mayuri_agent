@@ -17,6 +17,7 @@ Features:
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from queue import Empty, Queue
@@ -42,6 +43,7 @@ class AudioPipeline:
         self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="audio")
 
         self._is_speaking = False
+        self._current_task = None
         self._last_active_time: float = 0.0
         self._conversation_timeout: float = 45.0  # seconds
 
@@ -159,11 +161,21 @@ class AudioPipeline:
 
         logger.info(f"🎙️ Heard: '{raw_text}' (wake_detected={has_wake})")
 
+        # Instant voice interruption / barge-in: "stop", "cancel", "pause", "shut up", "be quiet"
+        if re.search(r"\b(stop|cancel|pause|shut\s*up|be\s*quiet|quiet|halt|stop\s*now)\b", raw_text, re.IGNORECASE):
+            logger.info("🛑 Voice interruption received! Cutting off speech and resetting.")
+            self._tts.stop()
+            self._is_speaking = False
+            if self._current_task and not self._current_task.done():
+                self._current_task.cancel()
+            asyncio.run_coroutine_threadsafe(EventBus.emit("state", {"status": "idle"}), loop)
+            return
+
         now = time.time()
         is_in_conversation = (now - self._last_active_time) < self._conversation_timeout
 
         # Trigger condition:
-        # 1. Spoke "Mayuri" / "Jarvis"
+        # 1. Spoke "Mayuri" / "Jarvis" / "wake up"
         # 2. OR conversation is currently active (follow-up question/command)
         if has_wake or is_in_conversation:
             target_text = clean_text if clean_text.strip() else raw_text
@@ -174,8 +186,15 @@ class AudioPipeline:
             logger.info(f"⚡ Command accepted: '{target_text}' (wake={has_wake}, follow_up={is_in_conversation})")
             self._last_active_time = now
 
-            # Dispatch to async event loop
-            asyncio.run_coroutine_threadsafe(
+            # If previous response is still speaking or generating, immediately interrupt it so the new question takes priority
+            if self._is_speaking:
+                self._tts.stop()
+                self._is_speaking = False
+            if self._current_task and not self._current_task.done():
+                self._current_task.cancel()
+
+            # Dispatch new command immediately
+            self._current_task = asyncio.run_coroutine_threadsafe(
                 self.process_text(target_text, speak=True),
                 loop,
             )
