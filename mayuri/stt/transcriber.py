@@ -86,29 +86,39 @@ class WhisperTranscriber:
             audio,
             language="en",
             beam_size=5,
-            vad_filter=True,
+            vad_filter=False,  # Audio is already pre-filtered by Silero VAD
+            initial_prompt="Mayuri, Hey Mayuri, Jarvis, Hey Jarvis, wake up, please wake up.",
         )
 
         raw_text = " ".join(seg.text.strip() for seg in segments).strip()
         custom_wake = re.escape(settings.wake_word.replace("_", " ")).strip()
-        wake_pattern = rf"\b(mayuri|mayuree|maiyuri|may\s*uri|my\s*uri|mayur|jarvis|hey\s*jarvis|alexa|{custom_wake})\b"
+        wake_pattern = rf"\b(mayuri|mayuree|maiyuri|may\s*uri|my\s*uri|mayur|jarvis|hey\s*jarvis|alexa|wake\s*up|please\s*wake\s*up|makeup|speak\s*up|beauty|enjoy\s*this|in\s*charge\s*of\s*this|ajahn|{custom_wake})\b"
         has_wake = bool(re.search(wake_pattern, raw_text, re.IGNORECASE))
         clean_text = self._strip_wake_word(raw_text).strip()
         return clean_text, raw_text, has_wake
 
     def transcribe_file(self, path: str) -> str:
         """Convenience: transcribe from a WAV file path."""
-        segments, _ = self._model.transcribe(path, language="en", beam_size=5)
+        segments, _ = self._model.transcribe(
+            path,
+            language="en",
+            beam_size=5,
+            vad_filter=False,
+            initial_prompt="Mayuri, Hey Mayuri, Jarvis, Hey Jarvis, wake up.",
+        )
         return " ".join(seg.text.strip() for seg in segments).strip()
 
     # ── Private ───────────────────────────────────────────────────────────────
 
     @staticmethod
     def _strip_wake_word(text: str) -> str:
-        """Remove leading 'Mayuri' / 'Jarvis' / 'Hey Jarvis' from transcript."""
+        """Remove leading 'Mayuri' / 'Jarvis' / 'Hey Jarvis' / 'wake up' from transcript."""
         custom_wake = re.escape(settings.wake_word.replace("_", " ")).strip()
         pattern = re.compile(
-            rf"^\s*(hey\s+)?(mayuri|mayuree|maiyuri|may\s*uri|my\s*uri|mayur|jarvis|{custom_wake})[,.]?\s*",
+            rf"^\s*(hey\s+|hi\s+)?(mayuri|mayuree|maiyuri|may\s*uri|my\s*uri|mayur|jarvis|alexa|{custom_wake}|ajahn|enjoy\s*this|in\s*charge\s*of\s*this|i'm\s*a\s*beauty)[,.]?\s*(\b(please\s+)?(wake\s*up|makeup|speak\s*up)\b)?\s*[,.]?\s*",
             re.IGNORECASE,
         )
-        return pattern.sub("", text)
+        cleaned = pattern.sub("", text).strip()
+        # Also clean standalone 'wake up'
+        cleaned = re.sub(r"^\s*(please\s+)?wake\s*up[,.]?\s*", "", cleaned, flags=re.IGNORECASE).strip()
+        return cleaned
