@@ -219,7 +219,10 @@ def play_music(query: str, platform: str = "youtube") -> str:
     except Exception as exc:
         logger.warning(f"Could not extract direct YouTube video ID ({exc}), opening search page instead.")
 
-    webbrowser.open(target_url)
+    try:
+        os.startfile(target_url)
+    except Exception:
+        webbrowser.open(target_url)
     return f"Started playing '{query_clean}' on YouTube at {target_url}."
 
 

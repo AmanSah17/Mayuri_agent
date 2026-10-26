@@ -13,6 +13,8 @@ Mayuri LangGraph agent with:
 from __future__ import annotations
 
 import asyncio
+import re
+import uuid
 from functools import lru_cache
 from textwrap import dedent
 
@@ -106,7 +108,7 @@ def _build_system_prompt(
         - calculate: safe math evaluation
 
         ## Core rules
-        1. When Aman asks to play a song, track, video, or music (e.g. "play Kalyani", "play music by Shreya Ghoshal", "play something on YouTube"), YOU MUST CALL the `play_music` tool immediately. DO NOT just say you will play it without invoking the tool!
+        1. When Aman asks to play a song, track, video, or music (e.g. "play Kalyani", "play music by Shreya Ghoshal", "play thunderstruck", "play on youtube"), YOU MUST CALL the `play_music` tool immediately. NEVER write markdown URLs like `[Song](https://youtube.com/...)` or fake URLs like "example_video_id" in conversational text!
         2. When Aman asks to open an app (e.g. "open notepad", "open chrome"), call `open_app`.
         3. When Aman asks to open a website, call `open_browser`.
         4. Never execute arbitrary code — only use named tools.
@@ -137,6 +139,73 @@ def build_llm() -> ChatOllama:
     return _get_llm_with_tools()
 
 
+# ── Fallback intent recovery ──────────────────────────────────────────────────
+
+def _recover_missing_tool_call(user_input: str, response_content: str) -> list[dict]:
+    """
+    If the LLM failed to emit a structured tool call and instead hallucinated
+    an action (e.g. 'I will play Thunderstruck on YouTube', or user explicitly asked
+    to play music / open an app), recover by synthesizing the proper tool call.
+    """
+    text_lower = user_input.lower().strip()
+    resp_lower = response_content.lower() if response_content else ""
+
+    # Check 1: Play music / YouTube request
+    play_match = re.search(
+        r'\b(?:play\s+(?:on\s+)?(?:youtube\s+)?(?:song\s+)?|listen\s+to\s+)(.+?)(?:,?\s*(?:open\s+youtube|on\s+youtube|on\s+spotify|on\s+browser)|$)',
+        text_lower
+    )
+    if "example_video_id" in resp_lower or ("play" in text_lower and ("youtube" in text_lower or "spotify" in text_lower or "song" in text_lower or "music" in text_lower)):
+        query = ""
+        if play_match and play_match.group(1).strip():
+            query = play_match.group(1).strip()
+            query = re.sub(r'\b(on\s+youtube|on\s+browser|on\s+spotify|please|song|track)\b', '', query, flags=re.IGNORECASE).strip()
+
+        if not query and response_content:
+            quoted = re.findall(r'["\']([^"\']+)["\']', response_content)
+            if quoted:
+                query = quoted[0]
+
+        if not query:
+            query = re.sub(r'\b(play|on|youtube|browser|spotify|music|song)\b', '', text_lower).strip()
+
+        if query:
+            logger.info(f"🛠️ Recovered missing play_music tool call for: '{query}'")
+            return [{
+                "name": "play_music",
+                "args": {"query": query, "platform": "youtube"},
+                "id": f"call_play_{uuid.uuid4().hex[:8]}",
+                "type": "tool_call",
+            }]
+
+    # Check 2: Open app request (e.g. "open notepad", "open chrome")
+    app_match = re.search(r'\b(?:open|launch|start)\s+(notepad|calculator|calc|chrome|spotify|vscode|code)\b', text_lower)
+    if app_match:
+        app_name = app_match.group(1).strip()
+        logger.info(f"🛠️ Recovered missing open_app tool call for: '{app_name}'")
+        return [{
+            "name": "open_app",
+            "args": {"name": app_name},
+            "id": f"call_app_{uuid.uuid4().hex[:8]}",
+            "type": "tool_call",
+        }]
+
+    return []
+
+
+def _clean_for_speech(text: str) -> str:
+    """Strip markdown links, URLs, and code characters so TTS speaks natural English."""
+    # Convert markdown links [Title](url) -> Title
+    cleaned = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    # Remove raw URLs
+    cleaned = re.sub(r'https?://\S+', '', cleaned)
+    # Remove markdown asterisks, backticks, hash symbols
+    cleaned = re.sub(r'[*_`#]', '', cleaned)
+    # Clean redundant spaces
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
+
 # ── Graph nodes ───────────────────────────────────────────────────────────────
 
 def llm_node(state: AgentState) -> dict:
@@ -152,6 +221,13 @@ def llm_node(state: AgentState) -> dict:
 
     messages = [SystemMessage(content=sys_prompt)] + state["messages"]
     response: AIMessage = llm.invoke(messages)
+
+    # Intent recovery: ONLY check if no tool has run yet this turn (prevents infinite loop)
+    has_tool_run = any(isinstance(m, ToolMessage) for m in state.get("messages", []))
+    if not has_tool_run and not response.tool_calls:
+        recovered = _recover_missing_tool_call(state.get("user_input", ""), response.content or "")
+        if recovered:
+            response.tool_calls = recovered
 
     model_name = response.response_metadata.get("model", settings.ollama_model)
     logger.info(f"🤖 LLM [{model_name}]: {response.content[:120] if response.content else '[tool call]'}")
@@ -183,10 +259,12 @@ def should_use_tools(state: AgentState) -> str:
 
 
 def respond_node(state: AgentState) -> dict:
-    """Extract final answer text from the last AIMessage."""
+    """Extract final answer text from the last AIMessage, cleaned for speech."""
     for msg in reversed(state["messages"]):
         if isinstance(msg, AIMessage) and msg.content:
-            return {"final_answer": str(msg.content), "needs_tools": False}
+            raw_text = str(msg.content)
+            clean_speech = _clean_for_speech(raw_text)
+            return {"final_answer": clean_speech, "needs_tools": False}
     return {"final_answer": "I'm not sure how to help with that.", "needs_tools": False}
 
 
