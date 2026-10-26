@@ -67,7 +67,10 @@ class SileroVAD:
         return model, utils
 
     def _is_speech(self, chunk: np.ndarray) -> bool:
-        tensor = torch.from_numpy(chunk.astype(np.float32))
+        audio_float = chunk.astype(np.float32)
+        if np.abs(audio_float).max() > 1.0:
+            audio_float = audio_float / 32768.0
+        tensor = torch.from_numpy(audio_float)
         if tensor.dim() == 1:
             tensor = tensor.unsqueeze(0)
         with torch.no_grad():

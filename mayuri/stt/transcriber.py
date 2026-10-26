@@ -90,7 +90,9 @@ class WhisperTranscriber:
         )
 
         raw_text = " ".join(seg.text.strip() for seg in segments).strip()
-        has_wake = bool(re.search(r"\b(mayuri|jarvis)\b", raw_text, re.IGNORECASE))
+        custom_wake = re.escape(settings.wake_word.replace("_", " ")).strip()
+        wake_pattern = rf"\b(mayuri|mayuree|maiyuri|may\s*uri|my\s*uri|mayur|jarvis|hey\s*jarvis|alexa|{custom_wake})\b"
+        has_wake = bool(re.search(wake_pattern, raw_text, re.IGNORECASE))
         clean_text = self._strip_wake_word(raw_text).strip()
         return clean_text, raw_text, has_wake
 
@@ -104,5 +106,9 @@ class WhisperTranscriber:
     @staticmethod
     def _strip_wake_word(text: str) -> str:
         """Remove leading 'Mayuri' / 'Jarvis' / 'Hey Jarvis' from transcript."""
-        pattern = re.compile(r"^\s*(hey\s+)?(mayuri|jarvis)[,.]?\s*", re.IGNORECASE)
+        custom_wake = re.escape(settings.wake_word.replace("_", " ")).strip()
+        pattern = re.compile(
+            rf"^\s*(hey\s+)?(mayuri|mayuree|maiyuri|may\s*uri|my\s*uri|mayur|jarvis|{custom_wake})[,.]?\s*",
+            re.IGNORECASE,
+        )
         return pattern.sub("", text)

@@ -180,4 +180,4 @@ class AudioPipeline:
                 loop,
             )
         else:
-            logger.debug(f"Ignored ambient speech (not addressed to Mayuri): '{raw_text}'")
+            logger.info(f"⚪ Heard audio: '{raw_text}' (Ignored: wake phrase not detected. Say 'Mayuri' or 'Hey Jarvis' to activate)")
